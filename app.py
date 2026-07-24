@@ -7,6 +7,16 @@ from dotenv import load_dotenv
 from flask_wtf import FlaskForm,CSRFProtect
 from flask_migrate import Migrate
 from flask_bcrypt import Bcrypt
+from flask_login import(
+    login_user,
+    logout_user,
+    login_required,
+    LoginManager,
+    UserMixin
+)
+from urllib.parse import urljoin,urlparse
+from flask_limiter import  Limiter
+from flask_limiter.util import get_remote_address
 import re
 load_dotenv()
 app=Flask(__name__)
@@ -20,6 +30,11 @@ migrate=Migrate()
 migrate.init_app(app,db)
 bcrypt=Bcrypt()
 bcrypt.init_app(app)
+login_manager=LoginManager()
+login_manager.init_app(app)
+limiter=Limiter(get_remote_address,app=app)
+#send users to login page first
+login_manager.login_view="login"
 @app.route('/',methods=['POST','GET'])
 def home():
     return render_template('home.html')
@@ -37,12 +52,14 @@ def register():
         user=User(username=username,email=email,password=hashed_password)
         db.session.add(user)
         db.session.commit()
-        print("Account created successfully","success")
+        flash("Account created successfully","success")
         return redirect(url_for("login"))
     if form.is_submitted():
         print(form.errors)
     return render_template('register.html',form=form)
 @app.route('/login',methods=['POST','GET'])
+#add rate limit to prevent bruteforce attacks on login 
+@limiter.limit("5 per minute")
 def login():
     form=LoginForm()
     if form.validate_on_submit():
@@ -50,22 +67,52 @@ def login():
         username=form.username.data
         password=form.password.data
         user=User.query.filter_by(username=username).first()
-        if not user or bcrypt.check_password_hash(user.password,password):
-            print("Invalid username or password")
+        print("User: ",user)
+        if not user or not bcrypt.check_password_hash(user.password,password):
+            flash("Invalid username or password","warning")
+            # print("Invalid username or password")
             return redirect(url_for("login"))
+        #create user session
+        login_user(user)
+        #get next page
+        #prevent open redirects
+        next_page=request.args.get("next")
+        print("Next page: ",next_page)
+        if next_page and is_safe_url(next_page):
+            return redirect(next_page)
+
         return redirect(url_for("dashboard"))
     return render_template('login.html',form=form)
 @app.route('/dashboard',methods=['POST','GET'])
+@login_required
 def dashboard():
     return render_template('dashboard.html')
 
 @app.route('/logout')
+@login_required
 def logout():
-    return render_template('logout.html')
+    logout_user()
+    flash("You have logged out","success")
+    return redirect(url_for('login'))
+#load user from the database
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User,user_id)
+#prevent open redirects
+def is_safe_url(target):
+    host_url=urlparse(request.host_url)
+    print("Host url: ",host_url)
+    print("host url: ",host_url.netloc)
+    redirect_url=urlparse(urljoin(request.host_url,target))
+    print("Redirect url: ",redirect_url.netloc)
+    return (redirect_url.scheme in("http","https") and host_url.netloc==redirect_url.netloc)
+#add rate limit
+@app.errorhandler(429)
+def rate_limit_error(e):
+    return render_template("429.html"),429
 #strong password validator
 def strong_password(form,field):
     password=field.data
-    print("Password",password)
     if len(password)<8:
         raise ValidationError("Password must be atleast 8 characters")
     if not re.search(r"[A-Z]",password):
@@ -92,7 +139,7 @@ class LoginForm(FlaskForm):
     submit=SubmitField("Login")
 
 #database model
-class User(db.Model):
+class User(db.Model,UserMixin):
     id=db.Column(db.Integer,primary_key=True)
     username=db.Column(db.String(50),nullable=False,unique=True)
     email=db.Column(db.String(100),nullable=False,unique=True)

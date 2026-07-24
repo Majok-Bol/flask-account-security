@@ -1,12 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboaard</title>
-</head>
-<body>
-    <p>Welcome to your Dashboard</p>
+{%extends 'base.html'%}
+{%block title%}Dashboard{%endblock%}
+
+{%block content%}
+    {%if current_user.is_authenticated%}
+    <p>Welcome <strong >{{current_user.username}}</strong> to your Dashboard</p>
+    {%endif%}
     <a href="{{url_for('home')}}">Home</a>
-</body>
-</html>
+    {%endblock%}

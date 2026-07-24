@@ -1,11 +1,6 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Home page</title>
-  </head>
-  <body>
+{% extends 'base.html'%}
+{%block title%}Home{%endblock%}
+{%block content%}
     <nav>
       <a href="{{url_for('home')}}">Home</a>
       <a href="{{url_for('dashboard')}}">Dashboard</a>
@@ -13,6 +8,4 @@
       <a href="{{url_for('register')}}">Register</a>
       <a href="{{url_for('logout')}}">Logout</a>
     </nav>
-    <h1>Home page</h1>
-  </body>
-</html>
+    {%endblock%}

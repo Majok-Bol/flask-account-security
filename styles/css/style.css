@@ -1,0 +1,9 @@
+body{
+    background-color: rgba(128, 128, 128, 0.78);
+}
+
+.field-error{
+    color:red;
+    font-size:0.5rem;
+    margin-top: 4px;;
+}
