@@ -1,4 +1,4 @@
-from flask import Flask,redirect,url_for,request,flash,render_template
+from flask import Flask,redirect,url_for,request,flash,render_template,session
 from flask_sqlalchemy import SQLAlchemy
 import os
 from wtforms import StringField,EmailField,PasswordField,SubmitField
@@ -18,10 +18,15 @@ from urllib.parse import urljoin,urlparse
 from flask_limiter import  Limiter
 from flask_limiter.util import get_remote_address
 import re
+from datetime import timedelta
 load_dotenv()
 app=Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI']=os.getenv("DATABASE_URL")
 app.config['SECRET_KEY']=os.getenv("CSRF_SECRET_KEY")
+#app session expiration
+app.config['PERMANENT_SESSION_LIFETIME']=timedelta(minutes=10)
+#refresh session after logins
+app.config['SESSION_REFRESH_EACH_REQUEST']=True
 db=SQLAlchemy(app)
 csrf=CSRFProtect()
 csrf.init_app(app)
@@ -33,6 +38,8 @@ bcrypt.init_app(app)
 login_manager=LoginManager()
 login_manager.init_app(app)
 limiter=Limiter(get_remote_address,app=app)
+#forcer re-login after session expires
+# login_manager.session_protection="strong"
 #send users to login page first
 login_manager.login_view="login"
 @app.route('/',methods=['POST','GET'])
@@ -74,6 +81,8 @@ def login():
             return redirect(url_for("login"))
         #create user session
         login_user(user)
+        #session expiration after 30 minutes
+        session.permanent=True
         #get next page
         #prevent open redirects
         next_page=request.args.get("next")
