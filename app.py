@@ -18,13 +18,21 @@ from urllib.parse import urljoin,urlparse
 from flask_limiter import  Limiter
 from flask_limiter.util import get_remote_address
 import re
-from datetime import timedelta
+from datetime import timedelta,datetime,timezone
 load_dotenv()
+# datetime.now(timezone.utc)
 app=Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI']=os.getenv("DATABASE_URL")
 app.config['SECRET_KEY']=os.getenv("CSRF_SECRET_KEY")
 #app session expiration
 app.config['PERMANENT_SESSION_LIFETIME']=timedelta(minutes=10)
+#prevent session hijacking
+#always use HTTPS
+# app.config['SESSION_COOKIE_SECURE']=True
+# #use HTTPONLY session cookies 
+# app.config["SESSION_COOKIE_HTTPONLY"]=True
+# #prevent cross site scripting
+# app.config["SESSION_COOKIE_SAMESITE"]="Strict" # "lax"
 #refresh session after logins
 app.config['SESSION_REFRESH_EACH_REQUEST']=True
 db=SQLAlchemy(app)
@@ -38,6 +46,7 @@ bcrypt.init_app(app)
 login_manager=LoginManager()
 login_manager.init_app(app)
 limiter=Limiter(get_remote_address,app=app)
+
 #forcer re-login after session expires
 # login_manager.session_protection="strong"
 #send users to login page first
@@ -50,19 +59,25 @@ def register():
     form=RegisterForm()
     if form.validate_on_submit():
         username=form.username.data
-        print("Username: ",username)
+
         email=form.email.data
-        print("Email: ",email)
+      
         password=form.password.data
-        print("Password: ",password)
+ 
         hashed_password=bcrypt.generate_password_hash(password).decode('utf-8')
+
         user=User(username=username,email=email,password=hashed_password)
+
         db.session.add(user)
+
         db.session.commit()
+
         flash("Account created successfully","success")
+
         return redirect(url_for("login"))
-    if form.is_submitted():
-        print(form.errors)
+    
+    # if form.is_submitted():
+    #     print(form.errors)
     return render_template('register.html',form=form)
 @app.route('/login',methods=['POST','GET'])
 #add rate limit to prevent bruteforce attacks on login 
@@ -72,21 +87,40 @@ def login():
     if form.validate_on_submit():
         #check if username exists
         username=form.username.data
+
         password=form.password.data
+
         user=User.query.filter_by(username=username).first()
-        print("User: ",user)
+        # user.locked_until=datetime.now(timezone.utc)+timedelta(minutes=15)
+        if user and user.locked_until:
+            if datetime.now(timezone.utc)<user.locked_until:
+                flash("Account is temporarily locked.","danger")
+                return redirect(url_for("login"))
+
         if not user or not bcrypt.check_password_hash(user.password,password):
+            user.failed_attempts+=1
+            if user.failed_attempts>=5:
+                user.locked_until=datetime.now(timezone.utc)+timedelta(minutes=5)
+                flash("Account locked for 5 minutes.","danger")
+            else:
+                flash("Invaid password")
+
             flash("Invalid username or password","warning")
-            # print("Invalid username or password")
+
             return redirect(url_for("login"))
         #create user session
+        #regenerate session
+        #remove previous session data before establishing the authenticated session
+        user.failed_attempts=0
+        user.locked_until=None
+        session.clear()
         login_user(user)
         #session expiration after 30 minutes
         session.permanent=True
         #get next page
         #prevent open redirects
         next_page=request.args.get("next")
-        print("Next page: ",next_page)
+       
         if next_page and is_safe_url(next_page):
             return redirect(next_page)
 
@@ -110,10 +144,9 @@ def load_user(user_id):
 #prevent open redirects
 def is_safe_url(target):
     host_url=urlparse(request.host_url)
-    print("Host url: ",host_url)
-    print("host url: ",host_url.netloc)
+
     redirect_url=urlparse(urljoin(request.host_url,target))
-    print("Redirect url: ",redirect_url.netloc)
+
     return (redirect_url.scheme in("http","https") and host_url.netloc==redirect_url.netloc)
 #add rate limit
 @app.errorhandler(429)
@@ -153,6 +186,9 @@ class User(db.Model,UserMixin):
     username=db.Column(db.String(50),nullable=False,unique=True)
     email=db.Column(db.String(100),nullable=False,unique=True)
     password=db.Column(db.String(255),nullable=False)
+    #add login attempts monitoring
+    failed_attempts=db.Column(db.Integer,default=0)
+    locked_until=db.Column(db.DateTime,nullable=True)
 
 
 
