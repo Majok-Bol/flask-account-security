@@ -2,7 +2,7 @@ from flask import Flask,redirect,url_for,request,flash,render_template,session
 from flask_sqlalchemy import SQLAlchemy
 import os
 from wtforms import StringField,EmailField,PasswordField,SubmitField
-from wtforms.validators import Length,Email,EqualTo,InputRequired,ValidationError
+from wtforms.validators import Email,EqualTo,InputRequired,ValidationError
 from dotenv import load_dotenv
 from flask_wtf import FlaskForm,CSRFProtect
 from flask_migrate import Migrate
@@ -18,9 +18,8 @@ from urllib.parse import urljoin,urlparse
 from flask_limiter import  Limiter
 from flask_limiter.util import get_remote_address
 import re
-from datetime import timedelta,datetime,timezone
+from datetime import timedelta
 load_dotenv()
-# datetime.now(timezone.utc)
 app=Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI']=os.getenv("DATABASE_URL")
 app.config['SECRET_KEY']=os.getenv("CSRF_SECRET_KEY")
@@ -65,6 +64,15 @@ def register():
         password=form.password.data
  
         hashed_password=bcrypt.generate_password_hash(password).decode('utf-8')
+        user_exists=User.query.filter_by(username=username).first()
+        email_exsits=User.query.filter_by(email=email).first()
+        if user_exists:
+            flash("Username not available.Please choose another username","warning")
+            return redirect(url_for("register"))
+        if email_exsits:
+            flash("Email address not available.Please choose another email address","warning")
+            return redirect(url_for("register"))
+
 
         user=User(username=username,email=email,password=hashed_password)
 
@@ -75,9 +83,6 @@ def register():
         flash("Account created successfully","success")
 
         return redirect(url_for("login"))
-    
-    # if form.is_submitted():
-    #     print(form.errors)
     return render_template('register.html',form=form)
 @app.route('/login',methods=['POST','GET'])
 #add rate limit to prevent bruteforce attacks on login 
@@ -91,28 +96,11 @@ def login():
         password=form.password.data
 
         user=User.query.filter_by(username=username).first()
-        # user.locked_until=datetime.now(timezone.utc)+timedelta(minutes=15)
-        if user and user.locked_until:
-            if datetime.now(timezone.utc)<user.locked_until:
-                flash("Account is temporarily locked.","danger")
-                return redirect(url_for("login"))
-
+        #user does not exist
         if not user or not bcrypt.check_password_hash(user.password,password):
-            user.failed_attempts+=1
-            if user.failed_attempts>=5:
-                user.locked_until=datetime.now(timezone.utc)+timedelta(minutes=5)
-                flash("Account locked for 5 minutes.","danger")
-            else:
-                flash("Invaid password")
-
             flash("Invalid username or password","warning")
+            return redirect(url_for('login'))
 
-            return redirect(url_for("login"))
-        #create user session
-        #regenerate session
-        #remove previous session data before establishing the authenticated session
-        user.failed_attempts=0
-        user.locked_until=None
         session.clear()
         login_user(user)
         #session expiration after 30 minutes
@@ -186,15 +174,10 @@ class User(db.Model,UserMixin):
     username=db.Column(db.String(50),nullable=False,unique=True)
     email=db.Column(db.String(100),nullable=False,unique=True)
     password=db.Column(db.String(255),nullable=False)
-    #add login attempts monitoring
-    failed_attempts=db.Column(db.Integer,default=0)
-    locked_until=db.Column(db.DateTime,nullable=True)
+
 
 
 
 
 if __name__=="__main__":
-    with app.app_context():
-        db.create_all()
-        # db.drop_all()
     app.run(debug=True)
